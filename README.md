@@ -173,11 +173,11 @@ echo schedutil > /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 ```
 /data/adb/
 ├── cpu_screenoff.conf          config (preserved on update)
-├── cpu_screenoff.log           runtime log (rotates at 1 MB)
+├── cpu_screenoff.log           runtime log (rotates at 1 MB → .1.gz → .2.gz)
 ├── cpu_screenoff.status        JSON status for WebUI (single line)
 ├── cpu_screenoff.pid           running service PID
-├── cpu_screenoff_batt.log      battery event log (rotates at 500 KB)
-├── cpu_screenoff_orig_freqN    saved pre-cap freq per core (v3.6+)
+├── cpu_screenoff_batt.log      battery event log (rotates at 500 KB → .1.gz → .2.gz)
+├── cpu_screenoff_orig_freqN    saved pre-cap freq (cleaned up on service exit)
 ├── cpu_screenoff.fifo          logcat FIFO pipe
 
 /data/adb/modules/cpu-screenoff/
@@ -222,6 +222,21 @@ kill $(cat /data/adb/cpu_screenoff.pid)
 ---
 
 ## Changelog
+
+### v3.7 — Installer & Runtime Hardening
+
+- **update-binary: version auto-read** — installer banner now reads version directly from `module.prop` inside the zip; never stale again
+- **update-binary: config.sh installed** — `config.sh` is now extracted to the module directory on install; was previously in the zip but never deployed
+- **update-binary: default config updated** — fresh-install config no longer contains removed variables (`TOAST`, `NOTIFY_BAR`, `SETTLE_DELAY=1`); now matches v3.6 defaults including governor settings
+- **update-binary: FIFO cleanup on update** — kills any lingering logcat background process and removes the named FIFO before extracting new files
+- **update-binary: dynamic CORES_OFF check** — sysfs node check reads `CORES_OFF` from the existing config rather than hardcoding cores 2-7
+- **update-binary: reports total CPU count** — installer now prints the device's actual CPU core count
+- **service.sh: compressed log rotation** — logs are now gzipped on rotation (`log.1.gz`, `log.2.gz`) instead of a raw `mv`; keeps 2 compressed backups, capped total disk use
+- **service.sh: dynamic CPU range** — `apply_governors`, `apply_freq_caps`, and `apply_freq_on` now detect the actual number of CPU cores at runtime instead of hardcoding 0-7; works correctly on devices with 6, 10, or 12 cores
+- **service.sh: in-kernel active core count** — `write_status` now reads `/sys/devices/system/cpu/online` directly instead of calling `nproc` (avoids a process fork on every status write)
+- **service.sh: cleanup restores freq caps** — EXIT trap now calls `apply_freq_on` before removing orig_freq files, ensuring cores aren't left throttled if the service is stopped while the screen is off
+- **service.sh: orig_freq files cleaned on exit** — `/data/adb/cpu_screenoff_orig_freqN` files are removed on clean service exit
+- **WebUI: reduced poll frequency** — status and freq state polls relaxed from 10s to 15s; log poll from 5s to 8s; reduces CPU wake-ups while WebUI is open
 
 ### v3.6 — Governor & Frequency Control
 **Major feature release.** Full per-core CPU governor and frequency management on screen-off and screen-on.

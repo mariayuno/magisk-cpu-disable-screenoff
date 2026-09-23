@@ -1,22 +1,20 @@
-## v3.6 — Governor & Frequency Control
+## v3.7 — Installer & Runtime Hardening
 
-Full per-core CPU governor and frequency management on screen-off and screen-on.
+Bug fixes and hardening across the installer, service, and WebUI. No new features — just making everything more robust and correct.
 
-### What's new
-- **Governor control** — set cpufreq scaling governor for online cores on screen-off/on (`GOV_SCREEN_OFF`, `GOV_SCREEN_ON`, per-core `CPU0–7` overrides)
-- **Frequency caps on screen-off** — per-core Hz caps after core parking (`FREQ_CAP_ENABLE`, `FREQ_CAP_CPUn`); original max freq saved and restored on wake
-- **Frequency targets on screen-on** — explicit Hz target per core on wake (`FREQ_ON_CPUn`); falls back to hardware max
-- **Updated logcat triggers** — `Sleeping (uid` / `Waking up from Asleep` for better AOSP 12–15 compatibility
-- **Config hot-reload via mtime** — no SIGHUP needed; changes picked up on next screen event automatically
-- **Smart boot delay** — skipped on manual restarts (uptime > 180s), only observed on actual system boot
-- **FIFO-based logcat pipe** — named FIFO + background job enables clean EXIT trap teardown
-- **action.sh** — status output now shows governor and freq cap state; JSON parsing hardened with `sed`
+### Fixes
+- **Installer** — version banner now reads directly from `module.prop` (was hardcoded v2.9)
+- **Installer** — `config.sh` now actually deployed to module directory on install (was in zip but never extracted)
+- **Installer** — fresh-install default config no longer contains removed variables (`TOAST`, `NOTIFY_BAR`, stale `SETTLE_DELAY=1`)
+- **Installer** — cleans up logcat FIFO and background process before replacing files
+- **Installer** — sysfs hotplug check reads `CORES_OFF` from config instead of hardcoding cores 2-7
+- **service.sh** — log rotation now gzips old logs (`.1.gz`, `.2.gz`) instead of raw `mv`; bounded disk use
+- **service.sh** — `apply_governors` / `apply_freq_caps` / `apply_freq_on` now detect actual CPU count at runtime; works on 6, 10, 12-core devices
+- **service.sh** — active core count in status JSON uses sysfs read instead of `nproc` (avoids process fork)
+- **service.sh** — EXIT trap restores freq caps and cleans up `orig_freq` files if service stops during screen-off
+- **WebUI** — poll intervals relaxed (status: 10s→15s, log: 5s→8s, freq: 10s→15s)
 
 ### Installation
-Flash `CPU-Screen-Off-v3.6.zip` via Magisk Manager or KernelSU. Existing `postboot.sh` and `cpu_screenoff.conf` are preserved on update.
+Flash `CPU-Screen-Off-v3.7.zip` via Magisk Manager or KernelSU. Existing `postboot.sh` and `cpu_screenoff.conf` are preserved on update.
 
-### Configuration
-See [README](https://github.com/rexackermann/magisk-cpu-disable-screenoff/blob/main/README.md) for full reference tables, hot-apply matrix, and troubleshooting.
-
-### Full changelog
-See [README — Changelog](https://github.com/rexackermann/magisk-cpu-disable-screenoff/blob/main/README.md#changelog).
+See [README](https://github.com/rexackermann/magisk-cpu-disable-screenoff/blob/main/README.md) for full configuration reference and changelog.

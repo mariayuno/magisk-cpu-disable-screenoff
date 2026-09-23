@@ -7,12 +7,16 @@ SKIPUNZIP=1
 OUTFD=$2
 ZIPFILE=$3
 
-ui() { echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; }
+ui()  { echo "ui_print $*" >> /proc/self/fd/$OUTFD; echo "ui_print" >> /proc/self/fd/$OUTFD; }
 die() { ui "  ✗ ERROR: $*"; exit 1; }
+
+# Read version directly from module.prop inside the zip
+VERSION=$(unzip -p "$ZIPFILE" module.prop 2>/dev/null | grep '^version=' | cut -d= -f2)
+VERSION="${VERSION:-v?.?}"
 
 ui ""
 ui "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-ui "  ⚡ CPU Screen Off  v2.9"
+ui "  ⚡ CPU Screen Off  ${VERSION}"
 ui "  Rex Ackermann · github.com/rexackermann"
 ui "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 ui ""
@@ -34,8 +38,9 @@ MODPATH="$MODDIR/$MODID"
 ui "  Path : $MODPATH"
 ui ""
 
-# ─── Kill running instance ────────────────────────────────────────
+# ─── Stop running instance cleanly ────────────────────────────────
 PIDFILE="/data/adb/cpu_screenoff.pid"
+FIFO="/data/adb/cpu_screenoff.fifo"
 if [ -f "$PIDFILE" ]; then
     OLD_PID=$(cat "$PIDFILE" 2>/dev/null)
     if [ -n "$OLD_PID" ] && kill -0 "$OLD_PID" 2>/dev/null; then
@@ -45,6 +50,9 @@ if [ -f "$PIDFILE" ]; then
     fi
     rm -f "$PIDFILE"
 fi
+# Clean up FIFO and any lingering logcat process
+rm -f "$FIFO"
+pkill -f "cpu_screenoff.fifo" 2>/dev/null
 
 # ─── Extract files ────────────────────────────────────────────────
 ui "  Extracting module files..."
@@ -54,10 +62,11 @@ unzip -o "$ZIPFILE" \
     'service.sh' \
     'action.sh' \
     'module.prop' \
+    'config.sh' \
     'webroot/index.html' \
     -d "$MODPATH" >&2 || die "Failed to extract core files"
 
-# Extract postboot.sh only if not already customised by user
+# postboot.sh — only install if not already customised by user
 if [ ! -f "$MODPATH/postboot.sh" ]; then
     unzip -o "$ZIPFILE" 'postboot.sh' -d "$MODPATH" >&2
     ui "  Installed default postboot.sh"
@@ -65,44 +74,56 @@ else
     ui "  Kept existing postboot.sh (user-customised)"
 fi
 
-# ─── Permissions ─────────────────────────────────────────────────
+# ─── Permissions ──────────────────────────────────────────────────
 chmod 755 "$MODPATH/service.sh" \
            "$MODPATH/action.sh"  \
            "$MODPATH/postboot.sh" 2>/dev/null
 chmod 644 "$MODPATH/module.prop" \
+           "$MODPATH/config.sh"  \
            "$MODPATH/webroot/index.html" 2>/dev/null
 
 # ─── Verify extracted files ───────────────────────────────────────
-for f in service.sh action.sh module.prop webroot/index.html; do
+for f in service.sh action.sh module.prop config.sh webroot/index.html; do
     [ -f "$MODPATH/$f" ] || die "Missing: $f"
 done
 ui "  All files verified [OK]"
 ui ""
 
-# ─── Create default config if none exists ────────────────────────
+# ─── Create default config if none exists ─────────────────────────
 CONF="/data/adb/cpu_screenoff.conf"
 if [ ! -f "$CONF" ]; then
     ui "  Creating default config at $CONF..."
-    cat > "$CONF" << 'EOF'
-# cpu-screenoff config
-# Edit here or use the WebUI (Magisk/KSU app → Modules → ⚡ CPU Screen Off → WebUI)
+    cat > "$CONF" << 'CONF_EOF'
+# cpu-screenoff config — edit here or use the WebUI
+# WebUI: Magisk/KSU app → Modules → ⚡ CPU Screen Off → WebUI
 
 CORES_OFF="2 3 4 5 6 7"
-SETTLE_DELAY=1
+SETTLE_DELAY=5
 BOOT_DELAY=30
 VERIFY=1
 VERBOSE=1
-TOAST=1
-NOTIFY_BAR=1
-EOF
+
+# Governor control (empty = don't touch)
+GOV_SCREEN_OFF="schedutil"
+GOV_SCREEN_ON="schedutil"
+
+# Frequency caps on screen-off (set FREQ_CAP_ENABLE=1 to activate)
+FREQ_CAP_ENABLE=0
+FREQ_CAP_CPU0=""
+FREQ_CAP_CPU1=""
+CONF_EOF
 else
     ui "  Existing config preserved"
 fi
 
-# ─── CPU hotplug check ───────────────────────────────────────────
+# ─── CPU hotplug check ────────────────────────────────────────────
 ui "  Checking CPU sysfs nodes..."
+
+# Read CORES_OFF from config if present, else use default
+CORES_TO_CHECK=$(grep '^CORES_OFF=' "$CONF" 2>/dev/null | cut -d= -f2 | tr -d '"' || echo "2 3 4 5 6 7")
+
 MISSING=""
-for cpu in 2 3 4 5 6 7; do
+for cpu in $CORES_TO_CHECK; do
     [ -f "/sys/devices/system/cpu/cpu${cpu}/online" ] || MISSING="$MISSING cpu${cpu}"
 done
 if [ -n "$MISSING" ]; then
@@ -112,10 +133,13 @@ else
     ui "  All CPU sysfs nodes present [OK]"
 fi
 
+# ─── Report total CPU count ───────────────────────────────────────
+TOTAL=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
+ui "  Device has ${TOTAL} CPU cores"
+
 ui ""
-ui "  ✓ Installation complete!"
+ui "  ✓ Installation complete! Reboot to activate."
 ui ""
-ui "  Reboot to activate."
 ui "  WebUI  → Magisk/KSU app → Modules → WebUI button"
 ui "  Config → /data/adb/cpu_screenoff.conf"
 ui "  Log    → /data/adb/cpu_screenoff.log"

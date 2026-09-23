@@ -10,7 +10,7 @@ PIDFILE="/data/adb/cpu_screenoff.pid"
 LOG="/data/adb/cpu_screenoff.log"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  ⚡ CPU Screen Off v3.6"
+echo "  ⚡ CPU Screen Off v3.7"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Service status
