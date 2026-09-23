@@ -744,11 +744,11 @@ function visInterval(fn, ms){
   await pollFreqState();
 
   // Intervals — paused when page is hidden, no wasted execs in background
-  visInterval(pollStatus, 10000);   // status only changes on events
-  visInterval(pollLog,     5000);
+  visInterval(pollStatus, 15000);   // status only changes on screen events
+  visInterval(pollLog,     8000);
   visInterval(pollBattery,60000);
   visInterval(syncModuleBtn,30000);
-  visInterval(pollFreqState,10000);
+  visInterval(pollFreqState,15000);
 
   // CORES_OFF live validation
   document.getElementById('c-cores').addEventListener('input',function(){

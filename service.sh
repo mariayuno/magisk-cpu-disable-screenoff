@@ -1,11 +1,11 @@
 #!/system/bin/sh
 # ═══════════════════════════════════════════════════════════════════
 #  CPU Screen Off — service.sh
-#  v3.6  |  Rex Ackermann  |  github.com/rexackermann
+#  v3.7  |  Rex Ackermann  |  github.com/rexackermann
 # ═══════════════════════════════════════════════════════════════════
 
 MODDIR="${0%/*}"
-VERSION="3.6"
+VERSION="3.7"
 
 LOG="/data/adb/cpu_screenoff.log"
 STATUS_FILE="/data/adb/cpu_screenoff.status"
@@ -91,7 +91,7 @@ write_status() {
         else s=$(cat "/sys/devices/system/cpu/cpu${cpu}/online" 2>/dev/null || echo 0); fi
         states="${states}${states:+,}${s}"; cpu=$(( cpu + 1 ))
     done
-    active=$(nproc 2>/dev/null || echo "?"); total="$cpu"
+    active=$(tr "," " " < /sys/devices/system/cpu/online 2>/dev/null | wc -w || echo "?"); total="$cpu"
     tmp="${STATUS_FILE}.tmp"
     printf '{"version":"%s","pid":%s,"state":"%s","last_ts":"%s","uptime":"%s","active_cores":%s,"total_cores":%s,"core_states":[%s],"cores_off":"%s","settle_delay":%s,"boot_delay":%s,"verify":%s,"verbose":%s,"gov_screen_off":"%s","gov_screen_on":"%s","freq_cap_enable":%s}\n' \
         "$VERSION" "$$" "$STATE" "$(date '+%H:%M:%S')" "$uptime_fmt" \
@@ -117,9 +117,11 @@ kill_old_instances() {
 # ─── Governor control ─────────────────────────────────────────────
 # apply_governors <phase>  where phase = off | on
 apply_governors() {
-    local phase="$1" cpu node gov global_gov
+    local phase="$1" cpu node gov global_gov max_cpu
     [ "$phase" = "off" ] && global_gov="$GOV_SCREEN_OFF" || global_gov="$GOV_SCREEN_ON"
-    for cpu in 0 1 2 3 4 5 6 7; do
+    max_cpu=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
+    max_cpu=$(( max_cpu - 1 ))
+    for cpu in $(seq 0 "$max_cpu"); do
         [ "$(cat /sys/devices/system/cpu/cpu${cpu}/online 2>/dev/null || echo 1)" = "0" ] && continue
         node="/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_governor"
         [ -f "$node" ] || continue
@@ -138,8 +140,10 @@ apply_governors() {
 # ─── Frequency control ────────────────────────────────────────────
 apply_freq_caps() {
     [ "$FREQ_CAP_ENABLE" = "1" ] || return
-    local cpu cap max_node
-    for cpu in 0 1 2 3 4 5 6 7; do
+    local cpu cap max_node total_cpu
+    total_cpu=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
+    total_cpu=$(( total_cpu - 1 ))
+    for cpu in $(seq 0 "$total_cpu"); do
         eval "cap=\$FREQ_CAP_CPU${cpu}"
         [ -z "$cap" ] && continue
         max_node="/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_max_freq"
@@ -151,8 +155,10 @@ apply_freq_caps() {
 }
 
 apply_freq_on() {
-    local cpu max_node target
-    for cpu in 0 1 2 3 4 5 6 7; do
+    local cpu max_node target total_cpu
+    total_cpu=$(ls -d /sys/devices/system/cpu/cpu[0-9]* 2>/dev/null | wc -l)
+    total_cpu=$(( total_cpu - 1 ))
+    for cpu in $(seq 0 "$total_cpu"); do
         [ "$(cat /sys/devices/system/cpu/cpu${cpu}/online 2>/dev/null || echo 1)" = "0" ] && continue
         max_node="/sys/devices/system/cpu/cpu${cpu}/cpufreq/scaling_max_freq"
         [ -f "$max_node" ] || continue
@@ -232,6 +238,10 @@ cleanup() {
     for cpu in $CORES_OFF; do
         echo 1 > /sys/devices/system/cpu/cpu${cpu}/online 2>/dev/null
     done
+    # Restore freq caps if they were applied
+    [ "$FREQ_CAP_ENABLE" = "1" ] && apply_freq_on
+    # Clean up saved freq files
+    rm -f /data/adb/cpu_screenoff_orig_freq[0-9]*
     rm -f "$PIDFILE"; STATE="stopped"; write_status
 }
 trap cleanup EXIT INT TERM
@@ -243,8 +253,16 @@ trap cleanup EXIT INT TERM
 #  MAIN
 # ═══════════════════════════════════════════════════════════════════
 
-[ -f "$LOG" ]         && [ "$(wc -c < "$LOG"         2>/dev/null||echo 0)" -gt 1048576 ] && mv "$LOG"         "${LOG}.1"
-[ -f "$BATTERY_LOG" ] && [ "$(wc -c < "$BATTERY_LOG" 2>/dev/null||echo 0)" -gt 524288  ] && mv "$BATTERY_LOG" "${BATTERY_LOG}.1"
+rotate_log() {
+    local f="$1" limit="$2"
+    [ -f "$f" ] || return
+    [ "$(wc -c < "$f" 2>/dev/null || echo 0)" -gt "$limit" ] || return
+    rm -f "${f}.2.gz"
+    [ -f "${f}.1.gz" ] && mv "${f}.1.gz" "${f}.2.gz"
+    gzip -c "$f" > "${f}.1.gz" && : > "$f"
+}
+rotate_log "$LOG"         1048576
+rotate_log "$BATTERY_LOG"  524288
 
 log "================================================"
 log "  CPU Screen Off v${VERSION} — Starting"
