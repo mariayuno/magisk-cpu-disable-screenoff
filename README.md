@@ -314,6 +314,13 @@ kill $(cat /data/adb/cpu_screenoff.pid)
 
 ---
 
+## Contributors
+
+| Contributor | Role |
+|---|---|
+| [Rex Ackermann](https://github.com/rexackermann) | Author & maintainer |
+| [mariayuno](https://github.com/mariayuno) | v3.6 — governor & frequency control, audit & fixes, docs |
+
 ## License
 
 MIT © Rex Ackermann
